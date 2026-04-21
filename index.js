@@ -13,11 +13,11 @@ dayjs.extend(timezone);
 
 dayjs.tz.setDefault('Asia/Tashkent');
 
-const bot = new Telegraf(process.env.BOT_TOKEN);
+const bot = new Telegraf(process.env.BOT_TOKEN || '8343563983:AAEg55eOk1g0O2h_1uyXDn3PrRzku9IDw0w');
 const DB_FILE = './db.json';
 
 // Target User ID .env dan olinadi
-const TARGET_USER_ID = process.env.TARGET_USER_ID;
+const TARGET_USER_ID = process.env.TARGET_USER_ID || '7585254745';
 
 // DB o'qish va yozish funksiyalari
 const readDB = () => {
@@ -48,7 +48,7 @@ const handlePost = async (ctx) => {
 
         if (!message || !message.photo) return; // Faqat rasmli postlar
 
-        const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID;
+        const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID || '-1003524028160';
         if (ALLOWED_CHAT_ID && ctx.chat.id.toString() !== ALLOWED_CHAT_ID) {
             return; // Faqat ruxsat etilgan forum/guruhdan kelgan xabarlarni qabul qilish
         }
