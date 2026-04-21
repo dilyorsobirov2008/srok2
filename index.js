@@ -110,6 +110,10 @@ const handlePost = async (ctx) => {
     }
 };
 
+bot.start((ctx) => {
+    ctx.reply("Assalomu alaykum! Men rasmli postlarni qabul qilib, belgilangan vaqtda adminga yetkazib beruvchi botman. Hozirda a'lo darajada ishlayapman! 🚀");
+});
+
 bot.on('message', handlePost);
 bot.on('channel_post', handlePost);
 
