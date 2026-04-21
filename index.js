@@ -48,6 +48,11 @@ const handlePost = async (ctx) => {
 
         if (!message || !message.photo) return; // Faqat rasmli postlar
 
+        const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID;
+        if (ALLOWED_CHAT_ID && ctx.chat.id.toString() !== ALLOWED_CHAT_ID) {
+            return; // Faqat ruxsat etilgan forum/guruhdan kelgan xabarlarni qabul qilish
+        }
+
         const caption = message.caption || '';
 
         // Sana va vaqtni izlash (Format: DD.MM.YYYY HH:mm)
