@@ -63,6 +63,9 @@ const handlePost = async (ctx) => {
 
             if (!parsedDate.isValid()) {
                 console.log("Xato vaqt formati:", dateTimeStr);
+                try {
+                    await ctx.reply(`❌ Sana yoki vaqt xato kiritildi: ${dateTimeStr}\nIltimos tekshirib qaytadan yozing.`);
+                } catch (e) {}
                 return;
             }
 
@@ -88,6 +91,13 @@ const handlePost = async (ctx) => {
                 await ctx.reply(`✅ Saqlandi, ${dateTimeStr} da userga yuboriladi`);
             } catch (replyError) {
                 console.error("Javob yuborishda xatolik (Kanalga xabar yozish ruxsati yo'q bo'lishi mumkin):", replyError.message);
+            }
+        } else {
+            // Agar sana va vaqt topilmasa, o'rgatuvchi xabar yuboramiz
+            try {
+                await ctx.reply("❌ Xato: Rasm ostida sana va vaqt topilmadi yoki noto'g'ri yozilgan.\n\nTo'g'ri format quyidagicha bo'lishi kerak:\n\n[Tovar haqida ma'lumot]\nDD.MM.YYYY HH:mm\n\nMasalan:\nYangi tovar\n25.04.2026 15:30");
+            } catch (replyError) {
+                console.error("O'rgatuvchi xabar yuborishda xatolik:", replyError.message);
             }
         }
     } catch (error) {
