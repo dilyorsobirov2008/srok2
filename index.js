@@ -13,13 +13,11 @@ dayjs.extend(timezone);
 
 dayjs.tz.setDefault('Asia/Tashkent');
 
-const bot = new Telegraf(process.env.BOT_TOKEN || '8343563983:AAEg55eOk1g0O2h_1uyXDn3PrRzku9IDw0w');
+const bot = new Telegraf(process.env.BOT_TOKEN);
 const DB_FILE = './db.json';
+const USERS_FILE = './users.json';
 
-// Target User ID .env dan olinadi
-const TARGET_USER_ID = process.env.TARGET_USER_ID || '7585254745';
-
-// DB o'qish va yozish funksiyalari
+// DB o'qish va yozish funksiyalari (Postlar)
 const readDB = () => {
     try {
         if (!fs.existsSync(DB_FILE)) {
@@ -41,29 +39,123 @@ const writeDB = (data) => {
     }
 };
 
-// Postlarni ushlash funksiyasi
+// Users o'qish va yozish funksiyalari
+const readUsers = () => {
+    try {
+        if (!fs.existsSync(USERS_FILE)) {
+            fs.writeFileSync(USERS_FILE, JSON.stringify({}));
+        }
+        return JSON.parse(fs.readFileSync(USERS_FILE, 'utf-8'));
+    } catch (error) {
+        console.error("Users db o'qishda xatolik:", error);
+        return {};
+    }
+};
+
+const writeUsers = (data) => {
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
+    } catch (error) {
+        console.error("Users db yozishda xatolik:", error);
+    }
+};
+
+const getUser = (userId) => {
+    const users = readUsers();
+    return users[userId] || {};
+};
+
+const updateUser = (userId, data) => {
+    const users = readUsers();
+    if (!users[userId]) users[userId] = {};
+    users[userId] = { ...users[userId], ...data };
+    writeUsers(users);
+};
+
+const getOwnerByChannelId = (chatId) => {
+    const users = readUsers();
+    for (const [userId, data] of Object.entries(users)) {
+        if (data.chat_id === chatId) {
+            return userId;
+        }
+    }
+    return null;
+};
+
+// Start buyrug'i
+bot.start((ctx) => {
+    ctx.reply("Botdan foydalanish uchun kanal yoki gruppaga botni admin qilib qo‘shing", {
+        reply_markup: {
+            inline_keyboard: [
+                [{ text: "➕ Kanal/Grupa ulash", callback_data: "connect_channel" }]
+            ]
+        }
+    });
+});
+
+// Kanal ulash tugmasi
+bot.action('connect_channel', async (ctx) => {
+    const userId = ctx.from.id.toString();
+    updateUser(userId, { state: 'WAITING_FOR_CHANNEL' });
+    await ctx.answerCbQuery();
+    await ctx.reply("1. Botni kanal yoki gruppaga admin qiling\n2. Shu yerga kanal username yoki group ID yuboring");
+});
+
+// Shaxsiy xabarlarni tutish (Kanal ID kiritish uchun)
+bot.on('message', async (ctx, next) => {
+    if (ctx.chat.type === 'private' && ctx.message.text) {
+        const userId = ctx.from.id.toString();
+        const user = getUser(userId);
+        
+        if (user.state === 'WAITING_FOR_CHANNEL') {
+            const channelId = ctx.message.text.trim();
+            try {
+                // Kanal/Gruppa ID sini tekshiramiz
+                const chat = await ctx.telegram.getChat(channelId);
+                const member = await ctx.telegram.getChatMember(chat.id, ctx.botInfo.id);
+                
+                if (member.status === 'administrator' || member.status === 'creator') {
+                    updateUser(userId, { chat_id: chat.id.toString(), state: 'NONE' });
+                    await ctx.reply("✅ Kanal yoki Gruppa muvaffaqiyatli ulandi!");
+                } else {
+                    await ctx.reply("❌ Bot kanal yoki gruppada admin emas. Admin qilib qayta urinib ko'ring.");
+                }
+            } catch (error) {
+                console.error(error.message);
+                await ctx.reply("❌ Kanal yoki Gruppa topilmadi yoki bot u yerda yo'q. ID yoki username to'g'riligini tekshiring.");
+            }
+            return;
+        }
+    }
+    return next();
+});
+
+// Postlarni tutish
 const handlePost = async (ctx) => {
     try {
         const message = ctx.message || ctx.channelPost;
+        if (!message) return;
 
-        if (!message || !message.photo) return; // Faqat rasmli postlar
+        // Faqat kanal yoki gruppalardan kelgan postlarni qabul qilish
+        if (ctx.chat.type === 'private') return;
 
-        const ALLOWED_CHAT_ID = process.env.ALLOWED_CHAT_ID || '-1003524028160';
-        if (ALLOWED_CHAT_ID && ctx.chat.id.toString() !== ALLOWED_CHAT_ID) {
-            return; // Faqat ruxsat etilgan forum/guruhdan kelgan xabarlarni qabul qilish
-        }
+        const chatId = ctx.chat.id.toString();
+        const ownerUserId = getOwnerByChannelId(chatId);
+
+        // Agar bu kanal hech qaysi userga ulanmagan bo'lsa, e'tibor bermaymiz
+        if (!ownerUserId) return;
+
+        // Faqat rasmli xabarlarni qabul qilish
+        if (!message.photo) return;
 
         const caption = message.caption || '';
-
+        
         // Sana va vaqtni izlash (Format: DD.MM.YYYY HH:mm)
-        // \d{2}\.\d{2}\.\d{4} -> Sana, \d{2}:\d{2} -> Vaqt
         const dateTimeRegex = /(\d{2}\.\d{2}\.\d{4}\s\d{2}:\d{2})/;
         const match = caption.match(dateTimeRegex);
 
         if (match) {
             const dateTimeStr = match[1];
-
-            // Vaqtni to'g'ri O'zbekiston vaqtida ekanligini tekshiramiz
             const parsedDate = dayjs.tz(dateTimeStr, 'DD.MM.YYYY HH:mm', 'Asia/Tashkent');
 
             if (!parsedDate.isValid()) {
@@ -77,6 +169,8 @@ const handlePost = async (ctx) => {
             const fileId = message.photo[message.photo.length - 1].file_id; // Eng katta razmerdagi rasm
 
             const newPost = {
+                user_id: ownerUserId,
+                chat_id: chatId,
                 file_id: fileId,
                 caption: caption,
                 datetime: parsedDate.toISOString(),
@@ -90,19 +184,10 @@ const handlePost = async (ctx) => {
 
             console.log(`Saqlanmoqda: Rasm (${fileId}) ${dateTimeStr} uchun belgilandi.`);
 
-            // Javob yozish
-            // Agar channel post bo'lsa, kanalga xabar yubora olamiz (faqat agar ruxsat bo'lsa)
             try {
-                await ctx.reply(`✅ Saqlandi, ${dateTimeStr} da userga yuboriladi`);
+                await ctx.reply(`✅ Saqlandi, belgilangan vaqtda yuboriladi`);
             } catch (replyError) {
-                console.error("Javob yuborishda xatolik (Kanalga xabar yozish ruxsati yo'q bo'lishi mumkin):", replyError.message);
-            }
-        } else {
-            // Agar sana va vaqt topilmasa, o'rgatuvchi xabar yuboramiz
-            try {
-                await ctx.reply("❌ Xato: Rasm ostida sana va vaqt topilmadi yoki noto'g'ri yozilgan.\n\nTo'g'ri format quyidagicha bo'lishi kerak:\n\n[Tovar haqida ma'lumot]\nDD.MM.YYYY HH:mm\n\nMasalan:\nYangi tovar\n25.04.2026 15:30");
-            } catch (replyError) {
-                console.error("O'rgatuvchi xabar yuborishda xatolik:", replyError.message);
+                console.error("Javob yuborishda xatolik:", replyError.message);
             }
         }
     } catch (error) {
@@ -110,21 +195,12 @@ const handlePost = async (ctx) => {
     }
 };
 
-bot.start((ctx) => {
-    ctx.reply("Assalomu alaykum! Men rasmli postlarni qabul qilib, belgilangan vaqtda adminga yetkazib beruvchi botman. Hozirda a'lo darajada ishlayapman! 🚀");
-});
-
-bot.on('message', handlePost);
 bot.on('channel_post', handlePost);
+bot.on('message', handlePost);
 
 // Scheduler: Har 1 daqiqada tekshiradi
 cron.schedule('* * * * *', async () => {
     console.log("Scheduler ishladi...", dayjs().tz('Asia/Tashkent').format('DD.MM.YYYY HH:mm'));
-
-    if (!TARGET_USER_ID) {
-        console.log("TARGET_USER_ID ko'rsatilmagan! .env faylni tekshiring.");
-        return;
-    }
 
     const db = readDB();
     let hasChanges = false;
@@ -136,15 +212,15 @@ cron.schedule('* * * * *', async () => {
 
             if (now.isAfter(postTime) || now.isSame(postTime, 'minute')) {
                 try {
-                    await bot.telegram.sendPhoto(TARGET_USER_ID, post.file_id, {
+                    // Xabarni shu kanalni ulagan userga yuboramiz
+                    await bot.telegram.sendPhoto(post.user_id, post.file_id, {
                         caption: post.caption
                     });
-                    console.log(`Userga yuborildi: Rasm (${post.file_id}) ${post.original_datetime_str} da.`);
+                    console.log(`Userga (${post.user_id}) yuborildi: Rasm (${post.file_id}) ${post.original_datetime_str} da.`);
                     post.status = 'sent';
                     hasChanges = true;
                 } catch (error) {
                     console.error(`Post yuborishda xatolik (${post.file_id}):`, error.message);
-                    // Agar bloklangan yoki chat topilmasa, keyinchalik xatolik bermasligi uchun bekor qilamiz
                     post.status = 'error';
                     hasChanges = true;
                 }
